@@ -1,12 +1,11 @@
-
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const config = require('../config');
-const cron = require('node-cron');
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+const config = require("../config");
+const cron = require("node-cron");
 
 class UnltdaiClient {
-  constructor () {
+  constructor() {
     this.baseURL = config.baseURL;
     this.apiKey = config.apiKey;
     this.userAgent = config.userAgent;
@@ -26,7 +25,7 @@ class UnltdaiClient {
       const data = JSON.parse(fs.readFileSync(this.tokenFile));
       this.tokenData = data;
     } catch {
-      console.warn('[UNLTDAI] No token cache found.');
+      console.warn("[UNLTDAI] No token cache found.");
     }
   }
 
@@ -40,7 +39,7 @@ class UnltdaiClient {
 
     try {
       const res = await axios.post(
-        this.baseURL + '/auth/v1/token?grant_type=refresh_token',
+        this.baseURL + "/auth/v1/token?grant_type=refresh_token",
         { refresh_token: this.tokenData.refreshToken },
         { headers: { apikey: this.apiKey } }
       );
@@ -50,38 +49,83 @@ class UnltdaiClient {
       this.tokenData.expiresAt = now + res.data.expires_in;
 
       this.saveTokenToDisk();
-      console.log('[UNLTDAI] ✅ Token refreshed');
+      console.log("[UNLTDAI] ✅ Token refreshed");
     } catch (err) {
-      console.error('[UNLTDAI] ❌ Failed to refresh token:', err.message);
+      console.error("[UNLTDAI] ❌ Failed to refresh token:", err.message);
     }
   }
 
   scheduleRefresh() {
-    cron.schedule(config.refreshInterval, () => this.refreshTokenIfNeeded(true));
+    cron.schedule(config.refreshInterval, () =>
+      this.refreshTokenIfNeeded(true)
+    );
   }
-
-  async request({ uri, method = 'GET', headers = {}, body, transformToQuery = false }) {
+  buildHeaders(extra = {}) {
+    return {
+      Authorization: `Bearer ${this.tokenData.accessToken}`,
+      apikey: this.apiKey,
+      "User-Agent": this.userAgent,
+      "Content-Type": "application/json",
+      ...extra,
+    };
+  }
+  async request({
+    uri,
+    method = "GET",
+    headers = {},
+    body,
+    transformToQuery = false,
+  }) {
     await this.refreshTokenIfNeeded();
     const url = new URL(uri, this.baseURL);
     if (transformToQuery) {
       Object.entries(body).forEach(([k, v]) => url.searchParams.append(k, v));
     }
+    const finalHeaders = this.buildHeaders(headers);
 
-    console.log('[UNLTDAI] Request:', url.href);
+    console.log("[UNLTDAI] Request:", url.href);
     const res = await axios(url.href, {
       method,
-      headers: {
-        Authorization: `Bearer ${this.tokenData.accessToken}`,
-        apikey: this.apiKey,
-        'User-Agent': this.userAgent,
-        'Content-Type': 'application/json',
-        ...headers
-      },
-      ...(!!transformToQuery && { data: body }),
+      headers: finalHeaders,
+      ...(!transformToQuery && { data: body }),
     });
-
     return res.data;
   }
-}
+  async stream({ uri, method = "POST", body = {}, headers = {}, res }) {
+    await this.refreshTokenIfNeeded();
 
+    const url = new URL(uri, this.baseURL);
+    const finalHeaders = this.buildHeaders(headers);
+
+    const response = await fetch(url, {
+      method,
+      headers: finalHeaders,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok || !response.body) {
+      res.status(response.status).send("Stream failed");
+      return;
+    }
+
+    const decoder = new TextDecoder("utf-8");
+    const reader = response.body.getReader();
+    let fullReply = "";
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.flushHeaders();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      fullReply += chunk;
+      res.write(chunk);
+    }
+    res.write(`\n\n"conversation_id":"${conv.id}"\n`);
+    res.end();
+    return fullReply;
+  }
+}
 module.exports = new UnltdaiClient();

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SSE Chat Demo</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #output { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Chat with AI</h1>
+  <form id="chat-form">
+    <input type="text" id="content" placeholder="Type something..." required style="width: 300px;" />
+    <button type="submit">Send</button>
+  </form>
+  <div id="output"></div>
+
+  <script>
+    const form = document.getElementById('chat-form');
+    const output = document.getElementById('output');
+    const API_URL = 'http://localhost:3000/chat-flow';
+    const USER_ID = '94311339-2d4d-4736-b9a3-17cdee13e9ed';
+    const MODEL = 'qwen-turbo';
+
+    async function sendChat(content) {
+      const conversation_id = localStorage.getItem('conversation_id');
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID, content, model: MODEL, conversation_id }),
+      });
+
+      if (!response.body) {
+        output.textContent = '[Error] No stream received';
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        full += chunk;
+        output.textContent += chunk;
+      }
+
+      // parse conversation_id if server includes it in the end
+      try {
+        const match = full.match(/"conversation_id"\s*:\s*"(.+?)"/);
+        if (match) {
+          localStorage.setItem('conversation_id', match[1]);
+        }
+      } catch (e) {
+        console.warn('Failed to parse conversation_id:', e);
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      output.textContent = ''; // reset
+      const content = document.getElementById('content').value;
+      await sendChat(content);
+    });
+  </script>
+</body>
+</html>

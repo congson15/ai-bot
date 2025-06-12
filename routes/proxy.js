@@ -41,6 +41,7 @@ router.get('/:key', async (req, res) => {
 
     res.json(data);
   } catch (err) {
+    console.log(err)
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
