@@ -27,6 +27,7 @@ module.exports = {
     method: 'GET',
     transform: (input) => ({
       ...input,
+      user_id: `eq.${input.user_id}`,
       'last_message_id': 'not.is.null',
       offset: input.offset || 0,
       limit: input.limit || 4,

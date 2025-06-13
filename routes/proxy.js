@@ -29,13 +29,13 @@ router.get('/:key', async (req, res) => {
   const { key } = req.params;
   const endpoint = endpoints[key];
   if (!endpoint) return res.status(404).json({ error: 'Invalid proxy key' });
-
+  console.log(req.search);
   try {
     const requestData = endpoint.transform ? endpoint.transform(req.body || {}) : {};
     const data = await unltdai.request({
       uri: endpoint.uri,
       method: endpoint.method,
-      query: requestData?.options?.query,
+      query: req.params,
       body: requestData
     });
 

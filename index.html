@@ -2,71 +2,284 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SSE Chat Demo</title>
+  <title>AI Chat App</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    #output { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+    body {
+      font-family: 'Roboto', sans-serif;
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+      background-color: #f9f9f9;
+      color: #333;
+    }
+    
+    #sidebar {
+      width: 250px;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+    }
+
+    #chat-area {
+      flex: 1;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+    }
+
+    h1, h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    #conversation-list {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    .conversation {
+      cursor: pointer;
+      padding: 10px;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+    }
+
+    .conversation:hover {
+      background-color: #f0f0f0;
+    }
+
+    .conversation.active {
+      background-color: #eef;
+    }
+
+    .message {
+      margin-bottom: 10px;
+      padding: 5px;
+      border-radius: 4px;
+    }
+
+    .message.user {
+      background-color: #e6f7ff;
+      color: #007bff;
+    }
+
+    .message.assistant {
+      background-color: #eaffea;
+      color: #28a745;
+    }
+
+    #chat-form {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    #content {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    #model-selector {
+      margin-left: 10px;
+      padding: 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    button[type="submit"] {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      background-color: #007bff;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button[type="submit"]:hover {
+      background-color: #0056b3;
+    }
+
+    #output {
+      white-space: pre-wrap;
+      border: 1px solid #ced4da;
+      padding: 10px;
+      margin-top: 10px;
+      min-height: 100px;
+      border-radius: 4px;
+      background-color: #fff;
+    }
+
+    #message-history {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      background-color: #fff;
+    }
   </style>
 </head>
 <body>
-  <h1>Chat with AI</h1>
-  <form id="chat-form">
-    <input type="text" id="content" placeholder="Type something..." required style="width: 300px;" />
-    <button type="submit">Send</button>
-  </form>
-  <div id="output"></div>
+  <div id="sidebar">
+    <h3>Conversations</h3>
+    <div id="conversation-list"></div>
+  </div>
+
+  <div id="chat-area">
+    <h1>Chat with AI</h1>
+    <form id="chat-form">
+      <input type="text" id="content" placeholder="Type something..." required style="width: 300px;" />
+      <select id="model-selector" style="margin-left: 10px;">
+        <option value="qwen-turbo">qwen-turbo</option>
+        <option value="qwen-plus">qwen-plus</option>
+        <option value="gpt-4o">gpt-4o</option>
+        <option value="gpt-4.1">gpt-4.1</option>
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
+        <option value="claude-3-5-haiku-latest">claude-3-5-haiku-latest</option>
+        <option value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest</option>
+        <option value="deepseek-chat">deepseek-chat</option>
+        <option value="deepseek-reasoner">deepseek-reasoner</option>
+      </select>
+      <button type="submit">Send</button>
+    </form>
+
+    <div id="output"></div>
+    <h3>History</h3>
+    <div id="message-history"></div>
+  </div>
 
   <script>
-    const form = document.getElementById('chat-form');
-    const output = document.getElementById('output');
-    const API_URL = 'http://localhost:3000/chat-flow';
-    const USER_ID = '94311339-2d4d-4736-b9a3-17cdee13e9ed';
-    const MODEL = 'qwen-turbo';
+    const API = "http://localhost:3000";
+    const USER_ID = "94311339-2d4d-4736-b9a3-17cdee13e9ed";
 
-    async function sendChat(content) {
-      const conversation_id = localStorage.getItem('conversation_id');
+    const form = document.getElementById("chat-form");
+    const output = document.getElementById("output");
+    const msgHistory = document.getElementById("message-history");
+    const convList = document.getElementById("conversation-list");
+    const contentInput = document.getElementById("content");
+    const modelSelector = document.getElementById("model-selector");
 
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: USER_ID, content, model: MODEL, conversation_id }),
+    let currentConvId = localStorage.getItem("conversation_id") || null;
+
+    async function fetchConversations() {
+      const res = await fetch(`${API}/proxy/get_user_conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: USER_ID, offset: 0, limit: 20 }),
       });
-
-      if (!response.body) {
-        output.textContent = '[Error] No stream received';
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let full = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        full += chunk;
-        output.textContent += chunk;
-      }
-
-      // parse conversation_id if server includes it in the end
-      try {
-        const match = full.match(/"conversation_id"\s*:\s*"(.+?)"/);
-        if (match) {
-          localStorage.setItem('conversation_id', match[1]);
-        }
-      } catch (e) {
-        console.warn('Failed to parse conversation_id:', e);
-      }
+      const data = await res.json();
+      renderConversations(data);
     }
 
-    form.addEventListener('submit', async (e) => {
+    function renderConversations(list) {
+      convList.innerHTML = "";
+      list.forEach((conv) => {
+        const div = document.createElement("div");
+        div.className = "conversation" + (conv.id === currentConvId ? " active" : "");
+        div.textContent = "Conversation " + conv.id.slice(0, 5);
+        div.onclick = () => {
+          currentConvId = conv.id;
+          localStorage.setItem("conversation_id", currentConvId);
+          fetchMessages();
+          highlightActive(conv.id);
+        };
+        convList.appendChild(div);
+      });
+    }
+
+    function highlightActive(id) {
+      document.querySelectorAll(".conversation").forEach(el => el.classList.remove("active"));
+      const target = [...convList.children].find(el => el.textContent.includes(id.slice(0, 5)));
+      if (target) target.classList.add("active");
+    }
+
+    async function fetchMessages() {
+      if (!currentConvId) return;
+      const res = await fetch(`${API}/proxy/get_messages_by_conversation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: currentConvId, offset: 0, limit: 20 }),
+      });
+      const data = await res.json();
+      renderMessages(data);
+    }
+
+    function renderMessages(msgs) {
+      msgHistory.innerHTML = "";
+      msgs.forEach((msg) => {
+        const div = document.createElement("div");
+        div.className = `message ${msg.role}`;
+        div.textContent = `${msg.role}: ${msg.content}`;
+        msgHistory.appendChild(div);
+      });
+    }
+
+    async function sendMessage(content, model) {
+      if (!currentConvId) {
+        const res = await fetch(`${API}/proxy/conversation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: USER_ID }),
+        });
+        const json = await res.json();
+        currentConvId = json.id;
+        localStorage.setItem("conversation_id", currentConvId);
+        await fetchConversations();
+      }
+
+      await fetch(`${API}/chat/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: currentConvId, content }),
+      });
+
+      const res = await fetch(`${API}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, model }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullReply = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        output.textContent += chunk;
+        fullReply += chunk;
+      }
+
+      await fetch(`${API}/chat/message/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: currentConvId, content: fullReply, model }),
+      });
+
+      await fetchMessages();
+    }
+
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      output.textContent = ''; // reset
-      const content = document.getElementById('content').value;
-      await sendChat(content);
+      output.textContent = "";
+      const content = contentInput.value;
+      const selectedModel = modelSelector.value;
+      contentInput.value = "";
+      await sendMessage(content, selectedModel);
     });
+
+    fetchConversations().then(fetchMessages);
   </script>
 </body>
 </html>

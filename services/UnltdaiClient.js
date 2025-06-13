@@ -91,41 +91,37 @@ class UnltdaiClient {
     });
     return res.data;
   }
-  async stream({ uri, method = "POST", body = {}, headers = {}, res }) {
+  async stream({ uri, method = "POST", body = {}, headers = {}, onChunk }) {
     await this.refreshTokenIfNeeded();
 
     const url = new URL(uri, this.baseURL);
     const finalHeaders = this.buildHeaders(headers);
 
-    const response = await fetch(url, {
-      method,
-      headers: finalHeaders,
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok || !response.body) {
-      res.status(response.status).send("Stream failed");
-      return;
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: finalHeaders,
+        body: JSON.stringify(body),
+      });
+      console.log(response.headers)
+      // if (!response.ok || !response.body) {
+      //   throw new Error(`Streaming failed with status ${response.status}`);
+      // }
+    
+      const decoder = new TextDecoder("utf-8");
+      const reader = response.body.getReader();
+    
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+    
+        const chunk = decoder.decode(value, { stream: true });
+        onChunk?.(chunk); // <-- dùng callback
+      }
+      
+    } catch (error) {
+      console.log(error);
     }
-
-    const decoder = new TextDecoder("utf-8");
-    const reader = response.body.getReader();
-    let fullReply = "";
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.flushHeaders();
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      fullReply += chunk;
-      res.write(chunk);
-    }
-    res.write(`\n\n"conversation_id":"${conv.id}"\n`);
-    res.end();
-    return fullReply;
   }
 }
 module.exports = new UnltdaiClient();
